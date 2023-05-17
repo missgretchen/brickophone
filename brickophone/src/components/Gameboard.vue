@@ -1,18 +1,19 @@
 <template>
   <div class="gameboard">
-    hello
+    <GameControlHeader />
   </div>
 </template>
 
 <script>
+import GameControlHeader from './GameControlHeader.vue';
 export default {
   name: 'GameBoard',
+  components: { GameControlHeader },
 }
 </script>
 
 
 <style scoped lang="scss">
-@import "../assets/vars.scss";
 .gameboard {
   display: flex;
   height: 100vh;
