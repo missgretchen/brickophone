@@ -1,14 +1,44 @@
 <template>
   <div class="gameboard">
     <GameControlHeader />
+    <Cursor :offsetPercentage="offsetPercentage"/>
   </div>
 </template>
 
 <script>
+
 import GameControlHeader from './GameControlHeader.vue';
+import Cursor from './Cursor.vue';
+
 export default {
   name: 'GameBoard',
-  components: { GameControlHeader },
+  components: { GameControlHeader, Cursor },
+  methods: {
+    onKeydown( event ) {
+      if (event.key === "ArrowLeft" ) {
+        this.offsetPercentage -= 2;
+        if (this.offsetPercentage <= 0) {
+          this.offsetPercentage = 100;
+        }
+      }
+      if (event.key === "ArrowRight" ) {
+        this.offsetPercentage += 2;
+        if (this.offsetPercentage >= 98) {
+          this.offsetPercentage = 0;
+        }
+      }
+    }
+  },
+
+  data() {
+    return {
+        offsetPercentage: 50,
+    };
+  },
+
+  mounted() {
+    document.addEventListener( "keydown", this.onKeydown );
+  },
 }
 </script>
 
@@ -18,6 +48,7 @@ export default {
   display: flex;
   height: 100vh;
   width: 100vw;
+  overflow: hidden;
   background: $background;
 }
 </style>
