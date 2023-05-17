@@ -1,10 +1,10 @@
 <template>
-    <div class="cursor" :style="`left: ${offsetPercentage}%`"/>
+    <div class="gamecursor" :style="`left: ${offsetPercentage}%`"/>
   </template>
   
   <script>
   export default {
-    name: 'GameControlHeader',
+    name: 'GameCursor',
     props: {
         offsetPercentage: {
             default: 50,
@@ -15,7 +15,7 @@
   
   
   <style scoped lang="scss">
-  .cursor {
+  .gamecursor {
     position: absolute;
     bottom: 0;
     height: 60px;

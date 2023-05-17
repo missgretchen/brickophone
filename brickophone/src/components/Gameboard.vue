@@ -1,18 +1,20 @@
 <template>
   <div class="gameboard">
     <GameControlHeader />
-    <Cursor :offsetPercentage="offsetPercentage"/>
+    <GameBall />
+    <GameCursor :offsetPercentage="offsetPercentage"/>
   </div>
 </template>
 
 <script>
 
 import GameControlHeader from './GameControlHeader.vue';
-import Cursor from './Cursor.vue';
+import GameCursor from './GameCursor.vue';
+import GameBall from './GameBall.vue';
 
 export default {
   name: 'GameBoard',
-  components: { GameControlHeader, Cursor },
+  components: { GameControlHeader, GameCursor, GameBall },
   methods: {
     onKeydown( event ) {
       if (event.key === "ArrowLeft" ) {
