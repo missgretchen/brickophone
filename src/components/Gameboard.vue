@@ -2,24 +2,29 @@
   <div class="gameboard">
     <GameControlHeader
       :score="score"
-      :lives="lives"
+      :lives="activeBrickCount"
       :status="statusText"
       @restart="restartGame"
     />
+
     <div ref="arena" class="arena">
+      <div class="ground-line" :style="{ top: `${groundY}px` }" />
+
       <div
         v-for="brick in bricks"
         :key="brick.id"
         class="brick"
+        :class="{ inactive: brick.manualMuted, ghost: !brick.active && !brick.manualMuted, flash: brick.flash }"
         :style="{
           left: `${brick.x}px`,
           top: `${brick.y}px`,
           width: `${brick.width}px`,
           height: `${brick.height}px`,
-          background: brick.color,
-          opacity: brick.alive ? 1 : 0
+          background: brick.color
         }"
+        @click="toggleBrick(brick.id)"
       />
+
       <div
         class="gameball"
         :style="{
@@ -29,102 +34,229 @@
           height: `${ball.size}px`
         }"
       />
-      <div
-        class="gamecursor"
-        :style="{
-          left: `${paddle.x}px`,
-          width: `${paddle.width}px`,
-          height: `${paddle.height}px`
-        }"
-      />
+
+      <aside class="controls">
+        <h3>Instrument Mode</h3>
+
+        <label>
+          Key
+          <select v-model="keyRoot">
+            <option v-for="note in NOTE_NAMES" :key="note" :value="note">{{ note }}</option>
+          </select>
+        </label>
+
+        <label>
+          Scale
+          <select v-model="scaleName">
+            <option v-for="name in Object.keys(SCALES)" :key="name" :value="name">{{ name }}</option>
+          </select>
+        </label>
+
+        <label>
+          Wave
+          <select v-model="waveform">
+            <option value="square">square</option>
+            <option value="sawtooth">saw</option>
+            <option value="triangle">triangle</option>
+            <option value="sine">sine</option>
+          </select>
+        </label>
+
+        <label>
+          Filter
+          <input v-model.number="cutoff" type="range" min="300" max="6000" step="20" @input="applyFilter" />
+        </label>
+
+        <label>
+          Resonance
+          <input v-model.number="resonance" type="range" min="0.2" max="12" step="0.1" @input="applyFilter" />
+        </label>
+
+        <label>
+          Density
+          <input v-model.number="density" type="range" min="10" max="100" step="5" />
+        </label>
+
+        <label>
+          Respawn Base
+          <input v-model.number="respawnMs" type="range" min="80" max="900" step="20" />
+        </label>
+
+        <label>
+          Respawn Jitter
+          <input v-model.number="respawnJitterMs" type="range" min="0" max="700" step="10" />
+        </label>
+
+        <div class="control-buttons">
+          <button @click="randomizeLayout">Randomize</button>
+          <button @click="fillLayout">Fill</button>
+          <button @click="clearLayout">Clear</button>
+        </div>
+
+        <p class="hint">Space starts autoplay. Click bricks to mute/unmute notes and shape loops.</p>
+      </aside>
     </div>
   </div>
 </template>
 
 <script>
+import GameControlHeader from "./GameControlHeader.vue";
+import SynthEngine from "../audio/SynthEngine";
 
-import GameControlHeader from './GameControlHeader.vue';
+const NOTE_NAMES = ["C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"];
+const SCALES = {
+  minorPentatonic: [0, 3, 5, 7, 10],
+  majorPentatonic: [0, 2, 4, 7, 9],
+  naturalMinor: [0, 2, 3, 5, 7, 8, 10],
+  major: [0, 2, 4, 5, 7, 9, 11],
+  dorian: [0, 2, 3, 5, 7, 9, 10],
+};
 
 export default {
-  name: 'GameBoard',
+  name: "GameBoard",
   components: { GameControlHeader },
+  data() {
+    return {
+      NOTE_NAMES,
+      SCALES,
+      arenaWidth: 0,
+      arenaHeight: 0,
+      animationFrame: null,
+      lastFrameTime: 0,
+      score: 0,
+      statusText: "SPACE TO START AUTOPLAY",
+      started: false,
+      rows: 6,
+      cols: 10,
+      density: 80,
+      keyRoot: "C",
+      scaleName: "minorPentatonic",
+      waveform: "square",
+      cutoff: 2200,
+      resonance: 0.8,
+      respawnMs: 180,
+      respawnJitterMs: 220,
+      synth: new SynthEngine(),
+      ball: {
+        x: 0,
+        y: 0,
+        size: 16,
+        speed: 300,
+        vx: 0,
+        vy: 0,
+      },
+      bricks: [],
+    };
+  },
+  computed: {
+    activeBrickCount() {
+      return this.bricks.filter((brick) => brick.active).length;
+    },
+    groundY() {
+      if (!this.bricks.length) return Math.max(0, this.arenaHeight - 40);
+      const bottomBrick = this.bricks.reduce(
+        (max, brick) => Math.max(max, brick.y + brick.height),
+        0
+      );
+      return Math.min(this.arenaHeight - 20, bottomBrick + 12);
+    },
+  },
   methods: {
     syncArenaSize() {
       if (!this.$refs.arena) return;
       this.arenaWidth = this.$refs.arena.clientWidth;
       this.arenaHeight = this.$refs.arena.clientHeight;
-      this.paddle.y = this.arenaHeight - this.paddle.height - 12;
-      this.paddle.x = (this.arenaWidth - this.paddle.width) / 2;
       this.resetBall();
       this.createBricks();
     },
     createBricks() {
-      const rows = 6;
-      const cols = 10;
       const gap = 8;
       const sidePadding = 16;
-      const topPadding = 24;
+      const topPadding = 20;
       const brickHeight = 22;
-      const totalGap = gap * (cols - 1);
-      const brickWidth = (this.arenaWidth - sidePadding * 2 - totalGap) / cols;
-      const palette = [
-        '#ff3b30',
-        '#ff9500',
-        '#ffcc00',
-        '#34c759',
-        '#32ade6',
-        '#af52de',
-      ];
-      const bricks = [];
+      const totalGap = gap * (this.cols - 1);
+      const brickWidth = (this.arenaWidth - sidePadding * 2 - totalGap) / this.cols;
+      const palette = ["#ff3b30", "#ff9500", "#ffcc00", "#34c759", "#32ade6", "#af52de"];
+      const next = [];
 
-      for (let row = 0; row < rows; row += 1) {
-        for (let col = 0; col < cols; col += 1) {
-          const color = palette[row % palette.length];
-          bricks.push({
+      for (let row = 0; row < this.rows; row += 1) {
+        for (let col = 0; col < this.cols; col += 1) {
+          next.push({
             id: `${row}-${col}`,
+            row,
+            col,
             x: sidePadding + col * (brickWidth + gap),
             y: topPadding + row * (brickHeight + gap),
             width: brickWidth,
             height: brickHeight,
-            color,
-            alive: true,
+            color: palette[row % palette.length],
+            active: true,
+            manualMuted: false,
+            flash: false,
           });
         }
       }
-      this.bricks = bricks;
+      this.bricks = next;
     },
     resetBall() {
-      this.ball.x = this.paddle.x + this.paddle.width / 2 - this.ball.size / 2;
-      this.ball.y = this.paddle.y - this.ball.size - 10;
+      const centerX = this.arenaWidth / 2 - this.ball.size / 2;
+      this.ball.x = Math.max(0, centerX);
+      this.ball.y = Math.max(0, this.groundY - this.ball.size);
       this.ball.vx = 0;
       this.ball.vy = 0;
-      this.waitingForLaunch = true;
+      this.started = false;
     },
-    launchBall() {
-      if (!this.waitingForLaunch || !this.gameActive) return;
-      const speed = this.ball.baseSpeed;
-      this.ball.vx = speed * (Math.random() > 0.5 ? 1 : -1);
-      this.ball.vy = -speed;
-      this.waitingForLaunch = false;
+    async startAutoplay() {
+      await this.synth.resume();
+      this.applyFilter();
+      if (this.started) return;
+      this.started = true;
+      this.statusText = "AUTOPLAY ACTIVE";
+      const angle = (Math.random() * 0.8 + 0.2) * (Math.random() > 0.5 ? 1 : -1);
+      this.ball.vx = this.ball.speed * angle;
+      this.ball.vy = -this.ball.speed;
+    },
+    restartGame() {
+      this.score = 0;
+      this.statusText = "SPACE TO START AUTOPLAY";
+      this.createBricks();
+      this.resetBall();
+    },
+    clearLayout() {
+      this.bricks = this.bricks.map((brick) => ({ ...brick, active: false, manualMuted: true }));
+    },
+    fillLayout() {
+      this.bricks = this.bricks.map((brick) => ({ ...brick, active: true, manualMuted: false }));
+    },
+    randomizeLayout() {
+      const threshold = this.density / 100;
+      this.bricks = this.bricks.map((brick) => ({
+        ...brick,
+        active: Math.random() < threshold,
+        manualMuted: false,
+      }));
+    },
+    toggleBrick(id) {
+      this.bricks = this.bricks.map((brick) =>
+        brick.id === id
+          ? {
+              ...brick,
+              manualMuted: !brick.manualMuted,
+              active: brick.manualMuted ? true : false,
+            }
+          : brick
+      );
+    },
+    applyFilter() {
+      this.synth.setFilter(this.cutoff, this.resonance);
     },
     onKeydown(event) {
-      if (event.key === 'ArrowLeft' || event.key === 'a') {
-        this.keys.left = true;
-      }
-      if (event.key === 'ArrowRight' || event.key === 'd') {
-        this.keys.right = true;
-      }
-      if (event.key === ' ' || event.code === 'Space') {
+      if (event.key === " " || event.code === "Space") {
         event.preventDefault();
-        this.launchBall();
+        this.startAutoplay();
       }
-    },
-    onKeyup(event) {
-      if (event.key === 'ArrowLeft' || event.key === 'a') {
-        this.keys.left = false;
-      }
-      if (event.key === 'ArrowRight' || event.key === 'd') {
-        this.keys.right = false;
+      if (event.key === "r" || event.key === "R") {
+        this.restartGame();
       }
     },
     intersects(a, b) {
@@ -135,73 +267,75 @@ export default {
         a.y + a.height > b.y
       );
     },
-    loseLife() {
-      this.lives -= 1;
-      if (this.lives <= 0) {
-        this.gameActive = false;
-        this.statusText = 'GAME OVER';
-        return;
-      }
-      this.statusText = 'LIFE LOST';
-      this.resetBall();
+    flashBrick(id) {
+      this.bricks = this.bricks.map((brick) => (brick.id === id ? { ...brick, flash: true } : brick));
+      window.setTimeout(() => {
+        this.bricks = this.bricks.map((brick) => (brick.id === id ? { ...brick, flash: false } : brick));
+      }, 80);
     },
-    restartGame() {
-      this.score = 0;
-      this.lives = 3;
-      this.statusText = 'SPACE TO LAUNCH';
-      this.gameActive = true;
-      this.waitingForLaunch = true;
-      this.createBricks();
-      this.resetBall();
+    triggerBrickSound(brick) {
+      if (!brick.active || brick.manualMuted) return;
+      const rowFromBottom = this.rows - 1 - brick.row;
+      const octave = 3 + Math.floor(rowFromBottom / 2);
+      const degree = brick.col + rowFromBottom;
+      this.synth.triggerNote({
+        key: this.keyRoot,
+        octave,
+        degree,
+        scale: this.SCALES[this.scaleName],
+        waveform: this.waveform,
+        velocity: 0.26 + rowFromBottom * 0.05,
+        duration: 0.12 + (brick.col % 4) * 0.03,
+      });
+      this.score += 1;
+      this.flashBrick(brick.id);
+      this.bricks = this.bricks.map((item) =>
+        item.id === brick.id ? { ...item, active: false } : item
+      );
+      const jitter = (Math.random() * 2 - 1) * this.respawnJitterMs;
+      const respawnDelay = Math.max(40, this.respawnMs + jitter);
+      window.setTimeout(() => {
+        this.bricks = this.bricks.map((item) => {
+          if (item.id !== brick.id || item.manualMuted) return item;
+          return { ...item, active: true };
+        });
+      }, respawnDelay);
     },
     tick(now) {
-      if (!this.lastFrameTime) {
-        this.lastFrameTime = now;
-      }
+      if (!this.lastFrameTime) this.lastFrameTime = now;
       const dt = Math.min((now - this.lastFrameTime) / 1000, 0.033);
       this.lastFrameTime = now;
-      this.updatePaddle(dt);
       this.updateBall(dt);
       this.animationFrame = window.requestAnimationFrame(this.tick);
     },
-    updatePaddle(dt) {
-      const speed = this.paddle.speed * dt;
-      if (this.keys.left) {
-        this.paddle.x -= speed;
-      }
-      if (this.keys.right) {
-        this.paddle.x += speed;
-      }
-      if (this.paddle.x < 0) this.paddle.x = 0;
-      const maxX = this.arenaWidth - this.paddle.width;
-      if (this.paddle.x > maxX) this.paddle.x = maxX;
-
-      if (this.waitingForLaunch) {
-        this.ball.x = this.paddle.x + this.paddle.width / 2 - this.ball.size / 2;
-      }
-    },
     updateBall(dt) {
-      if (!this.gameActive || this.waitingForLaunch) return;
+      if (!this.started) return;
+
       this.ball.x += this.ball.vx * dt;
       this.ball.y += this.ball.vy * dt;
 
       if (this.ball.x <= 0) {
         this.ball.x = 0;
-        this.ball.vx *= -1;
+        this.ball.vx = Math.abs(this.ball.vx);
       } else if (this.ball.x + this.ball.size >= this.arenaWidth) {
         this.ball.x = this.arenaWidth - this.ball.size;
-        this.ball.vx *= -1;
+        this.ball.vx = -Math.abs(this.ball.vx);
       }
 
       if (this.ball.y <= 0) {
         this.ball.y = 0;
-        this.ball.vy *= -1;
+        this.ball.vy = Math.abs(this.ball.vy);
+      } else if (this.ball.y + this.ball.size >= this.groundY) {
+        this.ball.y = this.groundY - this.ball.size;
+        this.ball.vy = -Math.abs(this.ball.vy);
+        const offset = (this.ball.x + this.ball.size / 2) / Math.max(this.arenaWidth, 1) - 0.5;
+        this.ball.vx += offset * 140;
       }
 
-      if (this.ball.y + this.ball.size >= this.arenaHeight) {
-        this.loseLife();
-        return;
-      }
+      const speed = Math.hypot(this.ball.vx, this.ball.vy);
+      const normalize = this.ball.speed / Math.max(speed, 1);
+      this.ball.vx *= normalize;
+      this.ball.vy *= normalize;
 
       const ballBox = {
         x: this.ball.x,
@@ -209,30 +343,10 @@ export default {
         width: this.ball.size,
         height: this.ball.size,
       };
-      const paddleBox = {
-        x: this.paddle.x,
-        y: this.paddle.y,
-        width: this.paddle.width,
-        height: this.paddle.height,
-      };
 
-      if (this.intersects(ballBox, paddleBox) && this.ball.vy > 0) {
-        this.ball.y = this.paddle.y - this.ball.size;
-        this.ball.vy = -Math.abs(this.ball.vy);
-        const impact =
-          (this.ball.x + this.ball.size / 2 - (this.paddle.x + this.paddle.width / 2)) /
-          (this.paddle.width / 2);
-        this.ball.vx = this.ball.baseSpeed * impact * 1.6;
-      }
-
-      let brokenBrick = false;
       for (const brick of this.bricks) {
-        if (!brick.alive) continue;
+        if (!brick.active) continue;
         if (!this.intersects(ballBox, brick)) continue;
-
-        brick.alive = false;
-        this.score += 10;
-        brokenBrick = true;
 
         const overlapLeft = ballBox.x + ballBox.width - brick.x;
         const overlapRight = brick.x + brick.width - ballBox.x;
@@ -247,70 +361,27 @@ export default {
         } else {
           this.ball.vy *= -1;
         }
+
+        this.triggerBrickSound(brick);
         break;
       }
-
-      if (brokenBrick && this.bricks.every((brick) => !brick.alive)) {
-        this.gameActive = false;
-        this.statusText = 'YOU WIN';
-      } else if (!this.waitingForLaunch && this.gameActive) {
-        this.statusText = 'PLAY';
-      }
-    }
+    },
   },
-
-  data() {
-    return {
-      arenaWidth: 0,
-      arenaHeight: 0,
-      animationFrame: null,
-      lastFrameTime: 0,
-      score: 0,
-      lives: 3,
-      gameActive: true,
-      waitingForLaunch: true,
-      statusText: 'SPACE TO LAUNCH',
-      keys: {
-        left: false,
-        right: false,
-      },
-      paddle: {
-        x: 0,
-        y: 0,
-        width: 120,
-        height: 18,
-        speed: 540,
-      },
-      ball: {
-        x: 0,
-        y: 0,
-        size: 16,
-        baseSpeed: 340,
-        vx: 0,
-        vy: 0,
-      },
-      bricks: [],
-    };
-  },
-
   mounted() {
     this.syncArenaSize();
-    window.addEventListener('resize', this.syncArenaSize);
-    document.addEventListener('keydown', this.onKeydown);
-    document.addEventListener('keyup', this.onKeyup);
+    window.addEventListener("resize", this.syncArenaSize);
+    document.addEventListener("keydown", this.onKeydown);
     this.animationFrame = window.requestAnimationFrame(this.tick);
   },
   beforeUnmount() {
-    window.removeEventListener('resize', this.syncArenaSize);
-    document.removeEventListener('keydown', this.onKeydown);
-    document.removeEventListener('keyup', this.onKeyup);
+    window.removeEventListener("resize", this.syncArenaSize);
+    document.removeEventListener("keydown", this.onKeydown);
     if (this.animationFrame) {
       window.cancelAnimationFrame(this.animationFrame);
     }
-  }
-}
+  },
+};
 </script>
-
 
 <style scoped lang="scss">
 .gameboard {
@@ -332,12 +403,14 @@ export default {
   background-size: 20px 20px;
 }
 
-.gamecursor {
+.ground-line {
   position: absolute;
-  bottom: 12px;
-  border: 2px solid #101010;
-  border-radius: 2px;
-  background: #f8f8f8;
+  left: 0;
+  width: 100%;
+  height: 3px;
+  background: #ffffff;
+  opacity: 0.7;
+  z-index: 1;
 }
 
 .gameball {
@@ -345,12 +418,100 @@ export default {
   border-radius: 50%;
   border: 2px solid #101010;
   background: #ffffff;
+  z-index: 2;
 }
 
 .brick {
   position: absolute;
   border-radius: 2px;
   border: 2px solid #101010;
-  transition: opacity 90ms linear;
+  transition: opacity 80ms linear, transform 80ms linear;
+  cursor: pointer;
+}
+
+.brick.inactive {
+  opacity: 0.15;
+  filter: grayscale(0.8);
+}
+
+.brick.ghost {
+  opacity: 0.28;
+}
+
+.brick.flash {
+  transform: scale(1.03);
+}
+
+.controls {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+  gap: 10px;
+  align-items: end;
+  padding: 12px;
+  border-top: 2px solid rgb(255 255 255 / 22%);
+  background: rgb(0 0 0 / 88%);
+  z-index: 3;
+}
+
+.controls h3 {
+  margin: 0;
+  font-size: 11px;
+  text-transform: uppercase;
+  grid-column: 1 / -1;
+}
+
+.controls label {
+  display: grid;
+  gap: 4px;
+  font-size: 10px;
+  text-transform: uppercase;
+}
+
+.controls select,
+.controls input,
+.controls button {
+  font: inherit;
+}
+
+.controls select,
+.controls input[type="range"] {
+  width: 100%;
+}
+
+.control-buttons {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 6px;
+  grid-column: 1 / -1;
+}
+
+.control-buttons button {
+  padding: 6px 4px;
+  border: 1px solid rgb(255 255 255 / 40%);
+  background: #111;
+  color: white;
+  cursor: pointer;
+}
+
+.control-buttons button:hover {
+  border-color: white;
+}
+
+.hint {
+  margin: 0;
+  font-size: 10px;
+  line-height: 1.4;
+  opacity: 0.85;
+  grid-column: 1 / -1;
+}
+
+@media (max-width: 900px) {
+  .controls {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
 }
 </style>

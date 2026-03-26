@@ -2,8 +2,8 @@
     <div class="game-control-header">
       <div class="title">brickophone</div>
       <div class="status">
-        <span>Score: {{ score }}</span>
-        <span>Lives: {{ lives }}</span>
+        <span>Hits: {{ score }}</span>
+        <span>Bricks: {{ lives }}</span>
         <span>{{ status }}</span>
       </div>
       <button class="restart" @click="$emit('restart')">Restart</button>
