@@ -26,74 +26,87 @@
       />
 
       <div
+        v-for="ball in balls"
+        :key="ball.id"
         class="gameball"
+        :class="{ draggable: !started || paused }"
         :style="{
           left: `${ball.x}px`,
           top: `${ball.y}px`,
           width: `${ball.size}px`,
           height: `${ball.size}px`
         }"
+        @pointerdown="onBallPointerDown($event, ball.id)"
       />
 
       <aside class="controls">
-        <h3>Instrument Mode</h3>
+        <h3>Instrument Dashboard</h3>
+        <WaveformVisualizer :synth="synth" :active="started && !paused" class="visualizer" />
 
-        <label>
-          Key
-          <select v-model="keyRoot">
-            <option v-for="note in NOTE_NAMES" :key="note" :value="note">{{ note }}</option>
-          </select>
-        </label>
+        <section class="control-panel">
+          <h4>Pitch</h4>
+          <label>
+            Key
+            <select v-model="keyRoot">
+              <option v-for="note in NOTE_NAMES" :key="note" :value="note">{{ note }}</option>
+            </select>
+          </label>
+          <label>
+            Scale
+            <select v-model="scaleName">
+              <option v-for="name in Object.keys(SCALES)" :key="name" :value="name">{{ name }}</option>
+            </select>
+          </label>
+          <label>
+            Wave
+            <select v-model="waveform">
+              <option value="square">square</option>
+              <option value="sawtooth">saw</option>
+              <option value="triangle">triangle</option>
+              <option value="sine">sine</option>
+            </select>
+          </label>
+        </section>
 
-        <label>
-          Scale
-          <select v-model="scaleName">
-            <option v-for="name in Object.keys(SCALES)" :key="name" :value="name">{{ name }}</option>
-          </select>
-        </label>
+        <section class="control-panel">
+          <h4>Tone</h4>
+          <label>
+            Filter
+            <input v-model.number="cutoff" type="range" min="300" max="6000" step="20" @input="applyFilter" />
+          </label>
+          <label>
+            Resonance
+            <input v-model.number="resonance" type="range" min="0.2" max="12" step="0.1" @input="applyFilter" />
+          </label>
+        </section>
 
-        <label>
-          Wave
-          <select v-model="waveform">
-            <option value="square">square</option>
-            <option value="sawtooth">saw</option>
-            <option value="triangle">triangle</option>
-            <option value="sine">sine</option>
-          </select>
-        </label>
+        <section class="control-panel">
+          <h4>Pattern</h4>
+          <label>
+            Density
+            <input v-model.number="density" type="range" min="10" max="100" step="5" />
+          </label>
+          <label>
+            Respawn Base
+            <input v-model.number="respawnMs" type="range" min="80" max="900" step="20" />
+          </label>
+          <label>
+            Respawn Jitter
+            <input v-model.number="respawnJitterMs" type="range" min="0" max="700" step="10" />
+          </label>
+        </section>
 
-        <label>
-          Filter
-          <input v-model.number="cutoff" type="range" min="300" max="6000" step="20" @input="applyFilter" />
-        </label>
+        <section class="control-panel">
+          <h4>Actions</h4>
+          <div class="control-buttons">
+            <button :disabled="started && !paused" @click="addBall">Add Ball</button>
+            <button @click="randomizeLayout">Randomize</button>
+            <button @click="fillLayout">Fill</button>
+            <button @click="clearLayout">Clear</button>
+          </div>
+        </section>
 
-        <label>
-          Resonance
-          <input v-model.number="resonance" type="range" min="0.2" max="12" step="0.1" @input="applyFilter" />
-        </label>
-
-        <label>
-          Density
-          <input v-model.number="density" type="range" min="10" max="100" step="5" />
-        </label>
-
-        <label>
-          Respawn Base
-          <input v-model.number="respawnMs" type="range" min="80" max="900" step="20" />
-        </label>
-
-        <label>
-          Respawn Jitter
-          <input v-model.number="respawnJitterMs" type="range" min="0" max="700" step="10" />
-        </label>
-
-        <div class="control-buttons">
-          <button @click="randomizeLayout">Randomize</button>
-          <button @click="fillLayout">Fill</button>
-          <button @click="clearLayout">Clear</button>
-        </div>
-
-        <p class="hint">Space starts autoplay. Click bricks to mute/unmute notes and shape loops.</p>
+        <p class="hint">Drag ball before start or while paused. Space toggles autoplay pause/resume. Click bricks to mute/unmute notes and shape loops.</p>
       </aside>
     </div>
   </div>
@@ -102,6 +115,7 @@
 <script>
 import GameControlHeader from "./GameControlHeader.vue";
 import SynthEngine from "../audio/SynthEngine";
+import WaveformVisualizer from "./WaveformVisualizer.vue";
 
 const NOTE_NAMES = ["C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"];
 const SCALES = {
@@ -114,7 +128,7 @@ const SCALES = {
 
 export default {
   name: "GameBoard",
-  components: { GameControlHeader },
+  components: { GameControlHeader, WaveformVisualizer },
   data() {
     return {
       NOTE_NAMES,
@@ -126,6 +140,7 @@ export default {
       score: 0,
       statusText: "SPACE TO START AUTOPLAY",
       started: false,
+      paused: false,
       rows: 6,
       cols: 10,
       density: 80,
@@ -137,14 +152,9 @@ export default {
       respawnMs: 180,
       respawnJitterMs: 220,
       synth: new SynthEngine(),
-      ball: {
-        x: 0,
-        y: 0,
-        size: 16,
-        speed: 300,
-        vx: 0,
-        vy: 0,
-      },
+      draggingBallId: null,
+      nextBallId: 2,
+      balls: [],
       bricks: [],
     };
   },
@@ -166,8 +176,8 @@ export default {
       if (!this.$refs.arena) return;
       this.arenaWidth = this.$refs.arena.clientWidth;
       this.arenaHeight = this.$refs.arena.clientHeight;
-      this.resetBall();
       this.createBricks();
+      this.resetBalls();
     },
     createBricks() {
       const gap = 8;
@@ -198,29 +208,98 @@ export default {
       }
       this.bricks = next;
     },
-    resetBall() {
-      const centerX = this.arenaWidth / 2 - this.ball.size / 2;
-      this.ball.x = Math.max(0, centerX);
-      this.ball.y = Math.max(0, this.groundY - this.ball.size);
-      this.ball.vx = 0;
-      this.ball.vy = 0;
+    createBall({ x, y, vx = 0, vy = 0 } = {}) {
+      const size = 16;
+      const speed = 300;
+      const centerX = this.arenaWidth / 2 - size / 2;
+      const startX = x ?? centerX;
+      const startY = y ?? this.groundY - size;
+      return {
+        id: this.nextBallId++,
+        x: Math.max(0, startX),
+        y: Math.max(0, startY),
+        size,
+        speed,
+        vx,
+        vy,
+      };
+    },
+    resetBalls() {
+      const centerX = this.arenaWidth / 2 - 8;
+      const ball = this.createBall({
+        x: centerX,
+        y: this.groundY - 16,
+        vx: 0,
+        vy: 0,
+      });
+      ball.id = 1;
+      this.nextBallId = 2;
+      this.balls = [ball];
       this.started = false;
+      this.paused = false;
+    },
+    randomVelocity(speed = 300) {
+      const angle = (Math.random() * 0.8 + 0.2) * (Math.random() > 0.5 ? 1 : -1);
+      return {
+        vx: speed * angle,
+        vy: -speed,
+      };
+    },
+    addBall() {
+      if (this.started && !this.paused) return;
+      const offset = (this.balls.length % 5) * 14 - 28;
+      const x = this.arenaWidth / 2 - 8 + offset;
+      const y = this.groundY - 16;
+      const ball = this.createBall({ x, y });
+      this.balls = [...this.balls, ball];
     },
     async startAutoplay() {
       await this.synth.resume();
       this.applyFilter();
-      if (this.started) return;
+      if (this.started) {
+        this.paused = false;
+        this.statusText = "AUTOPLAY ACTIVE";
+        this.balls = this.balls.map((ball) => {
+          if (Math.hypot(ball.vx, ball.vy) > 0.5) return ball;
+          const velocity = this.randomVelocity(ball.speed);
+          return {
+            ...ball,
+            vx: velocity.vx,
+            vy: velocity.vy,
+          };
+        });
+        return;
+      }
       this.started = true;
+      this.paused = false;
       this.statusText = "AUTOPLAY ACTIVE";
-      const angle = (Math.random() * 0.8 + 0.2) * (Math.random() > 0.5 ? 1 : -1);
-      this.ball.vx = this.ball.speed * angle;
-      this.ball.vy = -this.ball.speed;
+      this.balls = this.balls.map((ball) => {
+        if (Math.hypot(ball.vx, ball.vy) > 0) return ball;
+        const velocity = this.randomVelocity(ball.speed);
+        return {
+          ...ball,
+          vx: velocity.vx,
+          vy: velocity.vy,
+        };
+      });
+    },
+    pauseAutoplay() {
+      if (!this.started) return;
+      this.paused = true;
+      this.statusText = "PAUSED - SPACE TO RESUME";
+    },
+    toggleAutoplay() {
+      if (!this.started || this.paused) {
+        this.startAutoplay();
+      } else {
+        this.pauseAutoplay();
+      }
     },
     restartGame() {
       this.score = 0;
       this.statusText = "SPACE TO START AUTOPLAY";
       this.createBricks();
-      this.resetBall();
+      this.resetBalls();
     },
     clearLayout() {
       this.bricks = this.bricks.map((brick) => ({ ...brick, active: false, manualMuted: true }));
@@ -230,11 +309,14 @@ export default {
     },
     randomizeLayout() {
       const threshold = this.density / 100;
-      this.bricks = this.bricks.map((brick) => ({
-        ...brick,
-        active: Math.random() < threshold,
-        manualMuted: false,
-      }));
+      this.bricks = this.bricks.map((brick) => {
+        const active = Math.random() < threshold;
+        return {
+          ...brick,
+          active,
+          manualMuted: !active,
+        };
+      });
     },
     toggleBrick(id) {
       this.bricks = this.bricks.map((brick) =>
@@ -253,11 +335,44 @@ export default {
     onKeydown(event) {
       if (event.key === " " || event.code === "Space") {
         event.preventDefault();
-        this.startAutoplay();
+        this.toggleAutoplay();
       }
       if (event.key === "r" || event.key === "R") {
         this.restartGame();
       }
+    },
+    clampBallToArena(x, y, size = 16) {
+      const maxX = Math.max(0, this.arenaWidth - size);
+      const maxY = Math.max(0, this.groundY - size);
+      return {
+        x: Math.min(Math.max(0, x), maxX),
+        y: Math.min(Math.max(0, y), maxY),
+      };
+    },
+    onBallPointerDown(event, ballId) {
+      if (this.started && !this.paused) return;
+      this.draggingBallId = ballId;
+      event.preventDefault();
+    },
+    onPointerMove(event) {
+      if (!this.draggingBallId || !this.$refs.arena) return;
+      const rect = this.$refs.arena.getBoundingClientRect();
+      this.balls = this.balls.map((ball) => {
+        if (ball.id !== this.draggingBallId) return ball;
+        const x = event.clientX - rect.left - ball.size / 2;
+        const y = event.clientY - rect.top - ball.size / 2;
+        const clamped = this.clampBallToArena(x, y, ball.size);
+        return {
+          ...ball,
+          x: clamped.x,
+          y: clamped.y,
+          vx: 0,
+          vy: 0,
+        };
+      });
+    },
+    onPointerUp() {
+      this.draggingBallId = null;
     },
     intersects(a, b) {
       return (
@@ -305,77 +420,84 @@ export default {
       if (!this.lastFrameTime) this.lastFrameTime = now;
       const dt = Math.min((now - this.lastFrameTime) / 1000, 0.033);
       this.lastFrameTime = now;
-      this.updateBall(dt);
+      this.updateBalls(dt);
       this.animationFrame = window.requestAnimationFrame(this.tick);
     },
-    updateBall(dt) {
-      if (!this.started) return;
+    updateBalls(dt) {
+      if (!this.started || this.paused) return;
+      this.balls = this.balls.map((ball) => {
+        let next = { ...ball };
+        next.x += next.vx * dt;
+        next.y += next.vy * dt;
 
-      this.ball.x += this.ball.vx * dt;
-      this.ball.y += this.ball.vy * dt;
-
-      if (this.ball.x <= 0) {
-        this.ball.x = 0;
-        this.ball.vx = Math.abs(this.ball.vx);
-      } else if (this.ball.x + this.ball.size >= this.arenaWidth) {
-        this.ball.x = this.arenaWidth - this.ball.size;
-        this.ball.vx = -Math.abs(this.ball.vx);
-      }
-
-      if (this.ball.y <= 0) {
-        this.ball.y = 0;
-        this.ball.vy = Math.abs(this.ball.vy);
-      } else if (this.ball.y + this.ball.size >= this.groundY) {
-        this.ball.y = this.groundY - this.ball.size;
-        this.ball.vy = -Math.abs(this.ball.vy);
-        const offset = (this.ball.x + this.ball.size / 2) / Math.max(this.arenaWidth, 1) - 0.5;
-        this.ball.vx += offset * 140;
-      }
-
-      const speed = Math.hypot(this.ball.vx, this.ball.vy);
-      const normalize = this.ball.speed / Math.max(speed, 1);
-      this.ball.vx *= normalize;
-      this.ball.vy *= normalize;
-
-      const ballBox = {
-        x: this.ball.x,
-        y: this.ball.y,
-        width: this.ball.size,
-        height: this.ball.size,
-      };
-
-      for (const brick of this.bricks) {
-        if (!brick.active) continue;
-        if (!this.intersects(ballBox, brick)) continue;
-
-        const overlapLeft = ballBox.x + ballBox.width - brick.x;
-        const overlapRight = brick.x + brick.width - ballBox.x;
-        const overlapTop = ballBox.y + ballBox.height - brick.y;
-        const overlapBottom = brick.y + brick.height - ballBox.y;
-
-        const minOverlapX = Math.min(overlapLeft, overlapRight);
-        const minOverlapY = Math.min(overlapTop, overlapBottom);
-
-        if (minOverlapX < minOverlapY) {
-          this.ball.vx *= -1;
-        } else {
-          this.ball.vy *= -1;
+        if (next.x <= 0) {
+          next.x = 0;
+          next.vx = Math.abs(next.vx);
+        } else if (next.x + next.size >= this.arenaWidth) {
+          next.x = this.arenaWidth - next.size;
+          next.vx = -Math.abs(next.vx);
         }
 
-        this.triggerBrickSound(brick);
-        break;
-      }
+        if (next.y <= 0) {
+          next.y = 0;
+          next.vy = Math.abs(next.vy);
+        } else if (next.y + next.size >= this.groundY) {
+          next.y = this.groundY - next.size;
+          next.vy = -Math.abs(next.vy);
+          const offset = (next.x + next.size / 2) / Math.max(this.arenaWidth, 1) - 0.5;
+          next.vx += offset * 140;
+        }
+
+        const speed = Math.hypot(next.vx, next.vy);
+        const normalize = next.speed / Math.max(speed, 1);
+        next.vx *= normalize;
+        next.vy *= normalize;
+
+        const ballBox = {
+          x: next.x,
+          y: next.y,
+          width: next.size,
+          height: next.size,
+        };
+
+        for (const brick of this.bricks) {
+          if (!brick.active) continue;
+          if (!this.intersects(ballBox, brick)) continue;
+
+          const overlapLeft = ballBox.x + ballBox.width - brick.x;
+          const overlapRight = brick.x + brick.width - ballBox.x;
+          const overlapTop = ballBox.y + ballBox.height - brick.y;
+          const overlapBottom = brick.y + brick.height - ballBox.y;
+
+          const minOverlapX = Math.min(overlapLeft, overlapRight);
+          const minOverlapY = Math.min(overlapTop, overlapBottom);
+
+          if (minOverlapX < minOverlapY) {
+            next.vx *= -1;
+          } else {
+            next.vy *= -1;
+          }
+
+          this.triggerBrickSound(brick);
+          break;
+        }
+        return next;
+      });
     },
   },
   mounted() {
     this.syncArenaSize();
     window.addEventListener("resize", this.syncArenaSize);
     document.addEventListener("keydown", this.onKeydown);
+    window.addEventListener("pointermove", this.onPointerMove);
+    window.addEventListener("pointerup", this.onPointerUp);
     this.animationFrame = window.requestAnimationFrame(this.tick);
   },
   beforeUnmount() {
     window.removeEventListener("resize", this.syncArenaSize);
     document.removeEventListener("keydown", this.onKeydown);
+    window.removeEventListener("pointermove", this.onPointerMove);
+    window.removeEventListener("pointerup", this.onPointerUp);
     if (this.animationFrame) {
       window.cancelAnimationFrame(this.animationFrame);
     }
@@ -419,6 +541,15 @@ export default {
   border: 2px solid #101010;
   background: #ffffff;
   z-index: 2;
+  touch-action: none;
+}
+
+.gameball.draggable {
+  cursor: grab;
+}
+
+.gameball.draggable:active {
+  cursor: grabbing;
 }
 
 .brick {
@@ -448,7 +579,7 @@ export default {
   right: 0;
   bottom: 0;
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+  grid-template-columns: repeat(4, minmax(0, 1fr));
   gap: 10px;
   align-items: end;
   padding: 12px;
@@ -462,6 +593,26 @@ export default {
   font-size: 11px;
   text-transform: uppercase;
   grid-column: 1 / -1;
+}
+
+.visualizer {
+  grid-column: 1 / -1;
+}
+
+.control-panel {
+  display: grid;
+  gap: 8px;
+  align-content: start;
+  padding: 8px;
+  border: 1px solid rgb(255 255 255 / 18%);
+  background: rgb(255 255 255 / 2%);
+}
+
+.control-panel h4 {
+  margin: 0;
+  font-size: 10px;
+  text-transform: uppercase;
+  opacity: 0.92;
 }
 
 .controls label {
@@ -484,9 +635,8 @@ export default {
 
 .control-buttons {
   display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-template-columns: repeat(4, minmax(0, 1fr));
   gap: 6px;
-  grid-column: 1 / -1;
 }
 
 .control-buttons button {
@@ -499,6 +649,12 @@ export default {
 
 .control-buttons button:hover {
   border-color: white;
+}
+
+.control-buttons button:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+  border-color: rgb(255 255 255 / 22%);
 }
 
 .hint {

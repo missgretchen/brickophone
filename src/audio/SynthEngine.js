@@ -18,6 +18,8 @@ export default class SynthEngine {
     this.ctx = null;
     this.master = null;
     this.filter = null;
+    this.analyser = null;
+    this.waveformBuffer = null;
     this.initialized = false;
   }
 
@@ -29,12 +31,17 @@ export default class SynthEngine {
     this.ctx = new AudioCtx();
     this.master = this.ctx.createGain();
     this.filter = this.ctx.createBiquadFilter();
+    this.analyser = this.ctx.createAnalyser();
     this.filter.type = "lowpass";
     this.filter.frequency.value = 2200;
     this.filter.Q.value = 0.8;
     this.master.gain.value = 0.18;
+    this.analyser.fftSize = 1024;
+    this.analyser.smoothingTimeConstant = 0.85;
+    this.waveformBuffer = new Uint8Array(this.analyser.frequencyBinCount);
 
-    this.filter.connect(this.master);
+    this.filter.connect(this.analyser);
+    this.analyser.connect(this.master);
     this.master.connect(this.ctx.destination);
     this.initialized = true;
   }
@@ -51,6 +58,12 @@ export default class SynthEngine {
     if (!this.initialized) return;
     this.filter.frequency.setTargetAtTime(cutoff, this.ctx.currentTime, 0.01);
     this.filter.Q.setTargetAtTime(resonance, this.ctx.currentTime, 0.01);
+  }
+
+  getWaveformData() {
+    if (!this.initialized || !this.analyser || !this.waveformBuffer) return null;
+    this.analyser.getByteTimeDomainData(this.waveformBuffer);
+    return this.waveformBuffer;
   }
 
   triggerNote({
