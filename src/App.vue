@@ -13,8 +13,8 @@ export default {
 }
 </script>
 
-<style>
-@import "./assets/_shared.scss";
+<style lang="scss">
+@use "./assets/_shared.scss";
 #app {
   font-family: Avenir, Helvetica, Arial, sans-serif;
   color: white;
