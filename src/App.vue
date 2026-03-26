@@ -16,7 +16,8 @@ export default {
 <style lang="scss">
 @use "./assets/_shared.scss";
 #app {
-  font-family: Avenir, Helvetica, Arial, sans-serif;
+  font-family: "Press Start 2P", "Courier New", "Lucida Console", monospace;
   color: white;
+  line-height: 1.3;
 }
 </style>

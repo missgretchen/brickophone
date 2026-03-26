@@ -37,31 +37,67 @@
     display: flex;
     align-items: center;
     justify-content: space-between;
-    gap: 16px;
-    height: 60px;
-    padding: 0 10px;
-    width: 100%;
+    flex-wrap: wrap;
+    gap: 8px 14px;
+    min-height: 60px;
+    padding: 8px 12px;
+    box-sizing: border-box;
     background: $background;
-    border-bottom: 1px solid white;
+    border-bottom: 1px solid rgb(255 255 255 / 20%);
   }
 
   .title {
+    flex: 0 0 auto;
+    letter-spacing: 0.06em;
+    font-size: 14px;
     font-weight: 700;
-    text-transform: lowercase;
+    text-transform: uppercase;
   }
 
   .status {
     display: flex;
-    gap: 20px;
-    font-size: 14px;
+    flex: 1 1 280px;
+    min-width: 0;
+    justify-content: center;
+    gap: 10px;
+    font-size: 12px;
+    opacity: 0.95;
+    white-space: nowrap;
   }
 
   .restart {
-    padding: 8px 12px;
-    border: 1px solid white;
-    background: transparent;
+    flex: 0 0 auto;
+    min-height: 36px;
+    padding: 8px 14px;
+    border: 1px solid rgb(255 255 255 / 40%);
+    border-radius: 2px;
+    background: #111;
     color: white;
     cursor: pointer;
+    font-size: 12px;
+    font-weight: 600;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    transition: background-color 120ms ease, border-color 120ms ease, transform 120ms ease;
+  }
+
+  .restart:hover {
+    border-color: white;
+    background: #1c1c1c;
+  }
+
+  .restart:active {
+    transform: translateY(1px);
+  }
+
+  @media (max-width: 760px) {
+    .status {
+      order: 3;
+      flex: 1 1 100%;
+      justify-content: flex-start;
+      overflow-x: auto;
+      padding-bottom: 2px;
+    }
   }
   </style>
   

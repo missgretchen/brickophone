@@ -16,6 +16,7 @@
           top: `${brick.y}px`,
           width: `${brick.width}px`,
           height: `${brick.height}px`,
+          background: brick.color,
           opacity: brick.alive ? 1 : 0
         }"
       />
@@ -36,10 +37,6 @@
           height: `${paddle.height}px`
         }"
       />
-      <div v-if="overlayText" class="overlay">
-        <p>{{ overlayText }}</p>
-        <p class="hint">Press Space to launch the ball</p>
-      </div>
     </div>
   </div>
 </template>
@@ -70,16 +67,26 @@ export default {
       const brickHeight = 22;
       const totalGap = gap * (cols - 1);
       const brickWidth = (this.arenaWidth - sidePadding * 2 - totalGap) / cols;
+      const palette = [
+        '#ff3b30',
+        '#ff9500',
+        '#ffcc00',
+        '#34c759',
+        '#32ade6',
+        '#af52de',
+      ];
       const bricks = [];
 
       for (let row = 0; row < rows; row += 1) {
         for (let col = 0; col < cols; col += 1) {
+          const color = palette[row % palette.length];
           bricks.push({
             id: `${row}-${col}`,
             x: sidePadding + col * (brickWidth + gap),
             y: topPadding + row * (brickHeight + gap),
             width: brickWidth,
             height: brickHeight,
+            color,
             alive: true,
           });
         }
@@ -132,18 +139,16 @@ export default {
       this.lives -= 1;
       if (this.lives <= 0) {
         this.gameActive = false;
-        this.statusText = 'Game over';
-        this.overlayText = 'Game Over';
+        this.statusText = 'GAME OVER';
         return;
       }
-      this.statusText = 'Life lost';
+      this.statusText = 'LIFE LOST';
       this.resetBall();
     },
     restartGame() {
       this.score = 0;
       this.lives = 3;
-      this.statusText = 'Press Space to start';
-      this.overlayText = 'Ready';
+      this.statusText = 'SPACE TO LAUNCH';
       this.gameActive = true;
       this.waitingForLaunch = true;
       this.createBricks();
@@ -247,11 +252,9 @@ export default {
 
       if (brokenBrick && this.bricks.every((brick) => !brick.alive)) {
         this.gameActive = false;
-        this.statusText = 'You win';
-        this.overlayText = 'You cleared the board';
+        this.statusText = 'YOU WIN';
       } else if (!this.waitingForLaunch && this.gameActive) {
-        this.statusText = 'In play';
-        this.overlayText = '';
+        this.statusText = 'PLAY';
       }
     }
   },
@@ -266,8 +269,7 @@ export default {
       lives: 3,
       gameActive: true,
       waitingForLaunch: true,
-      statusText: 'Press Space to start',
-      overlayText: 'Ready',
+      statusText: 'SPACE TO LAUNCH',
       keys: {
         left: false,
         right: false,
@@ -323,41 +325,32 @@ export default {
 .arena {
   position: relative;
   overflow: hidden;
+  background: #050505;
+  background-image:
+    linear-gradient(to right, rgb(255 255 255 / 5%) 1px, transparent 1px),
+    linear-gradient(to bottom, rgb(255 255 255 / 5%) 1px, transparent 1px);
+  background-size: 20px 20px;
 }
 
 .gamecursor {
   position: absolute;
   bottom: 12px;
-  background: $cursor-color;
+  border: 2px solid #101010;
+  border-radius: 2px;
+  background: #f8f8f8;
 }
 
 .gameball {
   position: absolute;
   border-radius: 50%;
-  background: $cursor-color;
+  border: 2px solid #101010;
+  background: #ffffff;
 }
 
 .brick {
   position: absolute;
-  background: #4f8fef;
-  border-radius: 3px;
-  transition: opacity 120ms linear;
-}
-
-.overlay {
-  position: absolute;
-  inset: 0;
-  display: grid;
-  place-content: center;
-  gap: 8px;
-  text-align: center;
-  color: white;
-  background: rgb(0 0 0 / 35%);
-  pointer-events: none;
-}
-
-.hint {
-  opacity: 0.85;
-  font-size: 14px;
+  border-radius: 2px;
+  border: 2px solid #101010;
+  transition: opacity 90ms linear;
 }
 </style>
