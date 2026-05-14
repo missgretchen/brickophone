@@ -1,6 +1,5 @@
 # brickophone
-
-brickbreaker as a music making device
+Personal project inspired by the game brickbreaker, reimagined as a digital instrument. 
 
 ## Project setup
 ```
